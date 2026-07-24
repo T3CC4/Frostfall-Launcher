@@ -351,6 +351,21 @@
 
           <div class="tab-panel" id="tab-system" hidden>
             <div class="settings-grid">
+              <label class="setting-label" for="setting-directory-url"
+                >Active Directory</label
+              >
+              <div class="setting-path-row">
+                <input
+                  class="setting-input"
+                  id="setting-directory-url"
+                  type="url"
+                  placeholder="https://skyservers.online"
+                />
+                <button class="btn-browse" id="btn-directory-connect">
+                  Verify &amp; Pin
+                </button>
+              </div>
+              <div class="install-status" id="setting-directory-fingerprint"></div>
               <label
                 class="setting-label"
                 for="setting-locale"

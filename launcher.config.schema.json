@@ -46,21 +46,6 @@
         }
       }
     },
-    "modpack": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["enabled", "bridge", "wabbajack", "maxArchiveBytes"],
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "bridge": { "$ref": "#/$defs/pinnedTool" },
-        "wabbajack": { "$ref": "#/$defs/pinnedTool" },
-        "maxArchiveBytes": {
-          "type": "integer",
-          "minimum": 1048576,
-          "maximum": 1099511627776
-        }
-      }
-    },
     "links": {
       "type": "object",
       "additionalProperties": false,
@@ -131,18 +116,6 @@
           "minimum": 1048576,
           "maximum": 4294967296
         }
-      }
-    }
-  },
-  "$defs": {
-    "pinnedTool": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["version", "url", "sha256"],
-      "properties": {
-        "version": { "type": "string", "minLength": 1 },
-        "url": { "type": "string", "format": "uri" },
-        "sha256": { "type": "string", "pattern": "^$|^[a-fA-F0-9]{64}$" }
       }
     }
   }

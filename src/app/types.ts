@@ -8,7 +8,6 @@ export interface Server {
   name: string;
   address: string;
   port: number;
-  backendUrl?: string;
   description: string;
   region: string;
   tags: string[];
@@ -21,6 +20,14 @@ export interface Server {
   listed: boolean;
   access?: {
     discordGuild?: { required: boolean; guildId?: string; inviteUrl?: string };
+  };
+  resourcesPort?: number;
+  modpack?: {
+    nexusCollection: string;
+    revision: number;
+    plugins: string[];
+    loadOrder: string[];
+    hashes: Record<string, string>;
   };
 }
 
@@ -46,6 +53,8 @@ export interface PublicSettings {
   favoriteServerKeys: string[];
   directoryStatus: "live" | "empty" | "stale" | "unavailable";
   directoryError: string;
+  directoryUrl: string;
+  directoryFingerprint: string;
   discordUser: DiscordUser | null;
   modpackPath: string;
   locale: Locale;
@@ -150,13 +159,13 @@ export interface AppConfig {
   branding: { emblem: string; tagline: string; background: string };
   updates: { provider: string };
   behavior: { defaultLocale: Locale };
-  modpack: { enabled: boolean; wabbajackVersion: string };
 }
 
 export interface ElectronApi {
   getAppConfig(): Promise<AppConfig>;
   loadSettings(): Promise<PublicSettings>;
   saveSettings(data: Partial<PublicSettings>): Promise<PublicSettings>;
+  configureDirectory(url: string): Promise<PublicSettings>;
   selectServer(key: string): Promise<PublicSettings>;
   toggleFavorite(key: string): Promise<PublicSettings>;
   showServerBrowser(): Promise<PublicSettings>;

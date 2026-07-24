@@ -9,18 +9,19 @@ import {
   Tray,
 } from "electron";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import dotenv from "dotenv";
 import { config } from "./config.js";
-import { BackendApi } from "./backend.js";
-import { DirectoryApi, DirectoryError, joinCodeFromUrl } from "./directory.js";
+import {
+  DirectoryApi,
+  DirectoryError,
+  joinTargetFromUrl,
+} from "./directory.js";
 import { SettingsService } from "./settings.js";
-import { InstallerService } from "./installer.js";
-import { ModpackService, assertManagedRoot } from "./modpack.js";
-import type { BridgeEvent } from "./bridge.js";
-import { sha256File } from "./manifest.js";
+import { assertManagedRoot, VortexMo2Service } from "./vortex-mo2.js";
 import { detectSkyrim, validateSkyrim } from "./discovery.js";
 import { exportDiagnostics } from "./diagnostics.js";
 import { initializeLogger } from "./logger.js";
@@ -51,18 +52,14 @@ let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
 let settings: SettingsService;
-let installer: InstallerService;
-let modpack: ModpackService;
+let modpack: VortexMo2Service;
 let latestPreflight: PreflightReport | null = null;
 let dashboardController: AbortController | null = null;
-let pendingJoinCode = process.argv.map(joinCodeFromUrl).find(Boolean) || null;
+type JoinTarget = NonNullable<ReturnType<typeof joinTargetFromUrl>>;
+let pendingJoinTarget =
+  process.argv.map(joinTargetFromUrl).find((value) => value !== null) || null;
 const log = initializeLogger();
-const directory = new DirectoryApi(config.directory);
-function backendFor(server = settings?.activeServer()) {
-  if (!server?.backendUrl)
-    throw new Error("Selected Directory server has no operator backend URL.");
-  return new BackendApi(server.backendUrl);
-}
+let directory = new DirectoryApi(config.directory);
 async function applyJoinCode(code: string) {
   if (!settings) return;
   try {
@@ -73,11 +70,85 @@ async function applyJoinCode(code: string) {
     log.warn("Private server join failed", error);
   }
 }
+async function configureDirectory(
+  rawUrl: string,
+  expectedFingerprint?: string,
+): Promise<boolean> {
+  const url = String(rawUrl || "").trim() || config.directory.url;
+  const key = await DirectoryApi.signingKey(url);
+  if (
+    expectedFingerprint &&
+    key.fingerprint.toLowerCase() !== expectedFingerprint.toLowerCase()
+  ) {
+    throw new Error(
+      `Directory signing-key fingerprint mismatch. Expected ${expectedFingerprint}, received ${key.fingerprint}.`,
+    );
+  }
+  const normalized = new URL(url).origin;
+  const currentUrl = settings.store.get("directoryUrl");
+  const currentFingerprint = settings.store.get("directoryFingerprint");
+  if (
+    currentUrl === normalized &&
+    currentFingerprint.toLowerCase() === key.fingerprint.toLowerCase()
+  ) {
+    directory = new DirectoryApi({ url: normalized, publicKey: key.publicKey });
+    return true;
+  }
+  const options: Electron.MessageBoxOptions = {
+    type: "question",
+    buttons: ["Cancel", "Trust Directory"],
+    defaultId: 0,
+    cancelId: 0,
+    title: "Trust Directory signing key?",
+    message: normalized,
+    detail: `SHA-256 fingerprint:\n${key.fingerprint}\n\nSessions, private join codes and cache are isolated when the Directory changes.`,
+  };
+  const answer = win
+    ? await dialog.showMessageBox(win, options)
+    : await dialog.showMessageBox(options);
+  if (answer.response !== 1) return false;
+  if (currentUrl !== normalized || currentFingerprint !== key.fingerprint) {
+    settings.clearDirectorySession();
+    settings.store.set("encryptedServerSessions", {});
+    settings.store.set("serverProfileIds", {});
+    settings.store.set("encryptedPrivateJoinCodes", {});
+    settings.store.set("cachedServers", []);
+    settings.store.set("discordUser", null);
+  }
+  settings.store.set("directoryUrl", normalized);
+  settings.store.set("directoryFingerprint", key.fingerprint);
+  settings.store.set("directoryPublicKey", key.publicKey);
+  directory = new DirectoryApi({ url: normalized, publicKey: key.publicKey });
+  return true;
+}
+async function applyJoinTarget(target: JoinTarget) {
+  try {
+    if (target.directory) {
+      if (!(await configureDirectory(target.directory, target.fingerprint)))
+        return;
+    } else if (
+      target.fingerprint &&
+      settings.store.get("directoryFingerprint").toLowerCase() !==
+        target.fingerprint.toLowerCase()
+    ) {
+      throw new Error("Join-link fingerprint does not match the active Directory.");
+    }
+    await applyJoinCode(target.code);
+  } catch (error) {
+    log.warn("Join link rejected", error);
+    if (win)
+      await dialog.showMessageBox(win, {
+        type: "error",
+        title: "Join link rejected",
+        message: error instanceof Error ? error.message : String(error),
+      });
+  }
+}
 function receiveDeepLink(value: string) {
-  const code = joinCodeFromUrl(value);
-  if (!code) return;
-  pendingJoinCode = code;
-  if (settings) void applyJoinCode(code);
+  const target = joinTargetFromUrl(value);
+  if (!target) return;
+  pendingJoinTarget = target;
+  if (settings) void applyJoinTarget(target);
 }
 app.on("open-url", (event, url) => {
   event.preventDefault();
@@ -151,102 +222,6 @@ function createWindow() {
     win.webContents.openDevTools({ mode: "detach" });
 }
 
-async function downloadNexusFile(
-  event: BridgeEvent,
-  signal: AbortSignal,
-): Promise<string> {
-  if (!event.url || !event.sha256 || !/^[a-f0-9]{64}$/i.test(event.sha256))
-    throw new Error("Bridge supplied an invalid manual download request.");
-  const isNexusUrl = (value: string) => {
-    try {
-      const target = new URL(value);
-      return (
-        target.protocol === "https:" &&
-        (target.hostname === "nexusmods.com" ||
-          target.hostname.endsWith(".nexusmods.com"))
-      );
-    } catch {
-      return false;
-    }
-  };
-  if (!isNexusUrl(event.url))
-    throw new Error("Manual downloads are restricted to Nexus Mods.");
-  const fileName = path.basename(event.fileName || "nexus-download.bin");
-  const destination = path.join(
-    app.getPath("userData"),
-    "downloads",
-    "nexus",
-    fileName,
-  );
-  await fs.promises.mkdir(path.dirname(destination), { recursive: true });
-  const browser = new BrowserWindow({
-    parent: win || undefined,
-    width: 1100,
-    height: 800,
-    autoHideMenuBar: true,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  browser.webContents.setWindowOpenHandler(({ url }) => {
-    if (isNexusUrl(url)) void browser.loadURL(url);
-    return { action: "deny" };
-  });
-  browser.webContents.on("will-navigate", (navigationEvent, url) => {
-    if (!isNexusUrl(url)) navigationEvent.preventDefault();
-  });
-  browser.webContents.on("will-redirect", (navigationEvent, url) => {
-    if (!isNexusUrl(url)) navigationEvent.preventDefault();
-  });
-  return new Promise<string>((resolve, reject) => {
-    let settled = false;
-    const cleanup = () => {
-      browser.webContents.session.removeListener("will-download", onDownload);
-      signal.removeEventListener("abort", onAbort);
-      if (!browser.isDestroyed()) browser.close();
-    };
-    const fail = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(error);
-    };
-    const onAbort = () => fail(new Error("Manual download cancelled."));
-    const onDownload = (
-      _downloadEvent: Electron.Event,
-      item: Electron.DownloadItem,
-    ) => {
-      item.setSavePath(destination);
-      item.once("done", async (_event, state) => {
-        if (state !== "completed")
-          return fail(new Error(`Nexus download ${state}.`));
-        try {
-          const stat = await fs.promises.stat(destination);
-          if (event.size && stat.size !== event.size)
-            throw new Error("Manual Nexus download has the wrong size.");
-          if ((await sha256File(destination)) !== event.sha256!.toLowerCase())
-            throw new Error(
-              "Manual Nexus download failed Wabbajack hash verification.",
-            );
-          settled = true;
-          cleanup();
-          resolve(destination);
-        } catch (error) {
-          fail(error as Error);
-        }
-      });
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    browser.webContents.session.on("will-download", onDownload);
-    browser.once("closed", () => {
-      if (!settled) fail(new Error("Manual Nexus download window was closed."));
-    });
-    void browser.loadURL(event.url!).catch(fail);
-  });
-}
-
 function ensureTray() {
   if (tray || process.platform !== "win32") return;
   tray = new Tray(
@@ -313,24 +288,43 @@ function writeClientSettings() {
     launchMode: "directory-managed",
     "server-ip": server.address,
     "server-port": Number(server.port),
-    profileId: settings.serverProfileId(server.key),
   };
   const profileId = settings.serverProfileId(server.key);
   const session = settings.getServerSession(server.key);
-  if (profileId == null || !session)
+  if (!session)
     throw new Error("Launcher-managed server session is unavailable.");
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.writeFileSync(destination, `${JSON.stringify(value, null, 2)}\n`);
   const target = authFile();
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, `//${JSON.stringify({ session, profileId })}`, {
+  fs.writeFileSync(target, `//${JSON.stringify({
+    session,
+    ...(profileId == null ? {} : { profileId }),
+  })}`, {
     mode: 0o600,
   });
 }
 
-async function enrichPreflight(
-  report: PreflightReport,
-): Promise<PreflightReport> {
+async function preflight(): Promise<PreflightReport> {
+  const server = settings.activeServer();
+  const skyrimRoot = settings.store.get("skyrimPath");
+  const checks: PreflightReport["checks"] = [];
+  checks.push(skyrimRoot && fs.existsSync(path.join(skyrimRoot, "SkyrimSE.exe"))
+    ? { id: "skyrim", status: "ok", message: "Skyrim installation found." }
+    : { id: "skyrim", status: "error", message: "Skyrim Special Edition was not found." });
+  checks.push(server
+    ? { id: "server", status: "ok", message: `Server ${server.name} selected.` }
+    : { id: "server", status: "error", message: "No game server is selected." });
+  checks.push(settings.getDirectorySession()
+    ? { id: "auth", status: "ok", message: "Directory login is ready." }
+    : { id: "auth", status: "error", message: "Discord login is required." });
+  const report: PreflightReport = {
+    ready: false,
+    repairable: false,
+    downloadBytes: 0,
+    offline: false,
+    checks,
+  };
   const modpackReport = await modpack.preflight();
   report.checks.unshift(...modpackReport.checks);
   report.downloadBytes = Math.max(
@@ -352,26 +346,11 @@ async function authorizeForPlay() {
     throw new Error("This server is no longer listed and cannot be started.");
   const directorySession = settings.getDirectorySession();
   if (!directorySession) throw new Error("Discord login is required.");
-  const signedGrant = await directory.playGrant(server.key, directorySession);
-  const exchange = await backendFor(server).exchangeDirectoryGrant(signedGrant);
-  if (!exchange?.session || !Number.isInteger(exchange.profileId))
-    throw new Error("Backend returned an invalid game session.");
-  settings.setServerSession(server.key, exchange.session, exchange.profileId);
-  const info = await backendFor(server).serverInfo(
-    server.key,
-    exchange.session,
-  );
-  if (!info?.access?.allowed)
-    throw new Error(info?.access?.reason || "Server access was denied.");
-  if (!info?.capabilities?.clientDistribution)
-    throw new Error(
-      "This backend does not provide the required client distribution capability.",
-    );
-  if (config.modpack.enabled && !info?.capabilities?.modpack)
-    throw new Error(
-      "This backend does not provide the required modpack capability.",
-    );
-  return info;
+  const grant = await directory.playGrant(server.key, directorySession);
+  if (typeof grant?.ticket !== "string" || !grant.ticket)
+    throw new Error("Directory returned an invalid play ticket.");
+  settings.setServerSession(server.key, grant.ticket);
+  return { access: { allowed: true }, server };
 }
 
 async function launchGame() {
@@ -453,6 +432,10 @@ function registerIpc() {
   });
   handle("app:getConfig", () => config.public);
   handle("settings:load", loadSettings);
+  handle("directory:configure", async (_event, rawUrl) => {
+    await configureDirectory(String(rawUrl || ""));
+    return await loadSettings();
+  });
   handle("settings:save", async (_event, input) => {
     const patch = settingsPatchSchema.parse(input);
     if (
@@ -544,40 +527,22 @@ function registerIpc() {
     const server = settings.activeServer();
     if (!server) return { error: "No server selected." };
     const signal = dashboardController.signal;
-    const session = settings.getServerSession(server.key);
-    const backend = backendFor(server);
-    const [status, infoResult] = await Promise.allSettled([
-      backend.status(server.key, signal),
-      backend.serverInfo(server.key, session, signal),
-    ]);
-    const info = infoResult.status === "fulfilled" ? infoResult.value : null;
-    const capabilities = info?.capabilities || {
+    const capabilities = {
       authentication: "directory-discord",
       news: false,
       mods: false,
       metrics: false,
       clientDistribution: false,
-      modpack: false,
+      modpack: Boolean(server.modpack),
     };
-    const [news, mods, metrics] = await Promise.allSettled([
-      capabilities.news
-        ? backend.news(server.key, signal)
-        : Promise.resolve([]),
-      capabilities.mods
-        ? backend.mods(server.key, signal)
-        : Promise.resolve([]),
-      capabilities.metrics
-        ? backend.metrics(server.key, signal)
-        : Promise.resolve(null),
-    ]);
     return {
       server,
-      status: status.status === "fulfilled" ? status.value : null,
-      info,
+      status: server.status,
+      info: { key: server.key, access: { allowed: true }, capabilities },
       capabilities,
-      news: news.status === "fulfilled" ? news.value : [],
-      mods: mods.status === "fulfilled" ? mods.value : [],
-      metrics: metrics.status === "fulfilled" ? metrics.value : null,
+      news: [],
+      mods: server.modpack?.plugins ?? [],
+      metrics: null,
     };
   });
   handle("discord:login", async () => {
@@ -615,30 +580,25 @@ function registerIpc() {
     removeAuthFile();
   });
   handle("play:preflight", async () => {
-    latestPreflight = await enrichPreflight(await installer.preflight());
+    latestPreflight = await preflight();
     return latestPreflight;
   });
   handle("install:repair", async () => {
     try {
       await modpack.install();
-      await installer.repair();
-      latestPreflight = await enrichPreflight(await installer.preflight());
+      latestPreflight = await preflight();
       return { success: latestPreflight.ready };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
   });
   handle("install:cancel", async () => {
-    const [client, pack] = await Promise.all([
-      Promise.resolve(installer.cancel()),
-      modpack.cancel(),
-    ]);
-    return client || pack;
+    return await modpack.cancel();
   });
   handle("play:start", async () => {
     try {
       await authorizeForPlay();
-      latestPreflight = await enrichPreflight(await installer.preflight());
+      latestPreflight = await preflight();
       if (!latestPreflight.ready)
         return {
           success: false,
@@ -666,11 +626,6 @@ function registerIpc() {
     const host = new URL(url).hostname.toLowerCase();
     const configured = new Set([
       new URL(config.directory.url).hostname,
-      ...settings.store
-        .get("cachedServers")
-        .map((server) => server.backendUrl)
-        .filter(Boolean)
-        .map((value) => new URL(value!).hostname),
       ...config.security.externalHosts,
       ...Object.values(config.links)
         .filter(Boolean)
@@ -701,33 +656,33 @@ if (gotLock)
     .whenReady()
     .then(async () => {
       settings = new SettingsService();
-      if (pendingJoinCode) await applyJoinCode(pendingJoinCode);
-      modpack = new ModpackService({
-        enabled: config.modpack.enabled,
-        backend: () => backendFor(),
+      if (!settings.store.get("directoryUrl")) {
+        const officialKey = crypto.createPublicKey({
+          key: Buffer.from(config.directory.publicKey, "base64"),
+          format: "der",
+          type: "spki",
+        }).export({ format: "der", type: "spki" });
+        settings.store.set("directoryUrl", config.directory.url);
+        settings.store.set("directoryPublicKey", config.directory.publicKey);
+        settings.store.set(
+          "directoryFingerprint",
+          crypto.createHash("sha256").update(officialKey).digest("hex"),
+        );
+      } else {
+        const pinned = settings.store.get("directoryPublicKey");
+        if (!pinned) throw new Error("Pinned Directory public key is missing.");
+        directory = new DirectoryApi({
+          url: settings.store.get("directoryUrl"),
+          publicKey: pinned,
+        });
+      }
+      if (pendingJoinTarget) await applyJoinTarget(pendingJoinTarget);
+      modpack = new VortexMo2Service({
         settings,
-        publicKey: config.security.clientManifestPublicKey,
-        bridge: config.modpack.bridge,
-        wabbajack: config.modpack.wabbajack,
-        maxArchiveBytes: config.modpack.maxArchiveBytes,
-        toolsDir: path.join(app.getPath("userData"), "tools"),
-        cacheDir: path.join(app.getPath("userData"), "modpack-cache"),
-        emit: (state) => send("install:state", state),
-        openAuth: async (url) => {
-          await shell.openExternal(url);
-        },
-        manualDownload: downloadNexusFile,
-        log,
-      });
-      installer = new InstallerService({
-        backend: () => backendFor(),
-        settings,
-        installRoot: () => modpack.runtimeRoot(),
-        publicKey: config.security.clientManifestPublicKey,
-        maxBytes: config.behavior.maxClientPackageBytes,
-        downloadsDir: path.join(app.getPath("userData"), "downloads"),
-        emit: (state) => send("install:state", state),
-        log,
+        userData: app.getPath("userData"),
+        runtimeSource: app.isPackaged
+          ? path.join(process.resourcesPath, "runtime")
+          : path.join(app.getAppPath(), "runtime"),
       });
       registerIpc();
       createWindow();

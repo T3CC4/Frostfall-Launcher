@@ -230,6 +230,10 @@ function populateSettings(value: PublicSettings) {
   locale = value.locale;
   $<HTMLInputElement>("setting-skyrim-path").value = value.skyrimPath;
   $<HTMLInputElement>("setting-modpack-path").value = value.modpackPath;
+  $<HTMLInputElement>("setting-directory-url").value = value.directoryUrl;
+  $("setting-directory-fingerprint").textContent = value.directoryFingerprint
+    ? `SHA-256: ${value.directoryFingerprint}`
+    : "";
   $<HTMLSelectElement>("setting-locale").value = value.locale;
   $<HTMLSelectElement>("onboarding-locale").value = value.locale;
   $<HTMLInputElement>("setting-launch-at-login").checked = value.launchAtLogin;
@@ -786,6 +790,13 @@ $("setting-locale").addEventListener("change", () => {
   locale = $<HTMLSelectElement>("setting-locale").value as any;
   $<HTMLSelectElement>("onboarding-locale").value = locale;
   applyLocale();
+});
+
+$("btn-directory-connect").addEventListener("click", async () => {
+  const value = $<HTMLInputElement>("setting-directory-url").value.trim();
+  settings = await window.electronAPI.configureDirectory(value);
+  populateSettings(settings);
+  await refreshDashboard();
 });
 $<HTMLSelectElement>("onboarding-locale").addEventListener("change", () => {
   locale = $<HTMLSelectElement>("onboarding-locale").value as any;

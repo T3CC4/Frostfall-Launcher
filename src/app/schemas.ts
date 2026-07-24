@@ -7,7 +7,6 @@ export const serverSchema = z
     name: z.string().min(1).max(120),
     address: z.string().min(1).max(255),
     port: z.coerce.number().int().min(1).max(65535),
-    backendUrl: z.string().url().optional(),
     description: z.string().max(2000).default(""),
     region: z.string().max(100).default(""),
     tags: z.array(z.string().max(100)).max(50).default([]),
@@ -33,6 +32,16 @@ export const serverSchema = z
             inviteUrl: z.string().url().optional(),
           })
           .optional(),
+      })
+      .optional(),
+    resourcesPort: z.coerce.number().int().min(1).max(65535).optional(),
+    modpack: z
+      .object({
+        nexusCollection: z.string().min(1),
+        revision: z.number().int().positive(),
+        plugins: z.array(z.string()),
+        loadOrder: z.array(z.string()),
+        hashes: z.record(z.string(), z.string()),
       })
       .optional(),
   })

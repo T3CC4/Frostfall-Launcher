@@ -50,15 +50,3 @@ test("disabled updates do not create publish configuration", () => {
   disabled.updates = { provider: "disabled", checkIntervalMinutes: 240 };
   assert.equal(getPublishConfig(disabled), undefined);
 });
-
-test("enabled modpacks require real pinned bridge and Wabbajack hashes", () => {
-  const enabled = structuredClone(config);
-  enabled.modpack.enabled = true;
-  const errors = validateConfig(enabled, { projectRoot, release: true });
-  assert.match(errors.join("\n"), /bridge\.sha256/);
-  assert.match(errors.join("\n"), /wabbajack\.sha256/);
-
-  enabled.modpack.bridge.sha256 = "a".repeat(64);
-  enabled.modpack.wabbajack.sha256 = "b".repeat(64);
-  assert.deepEqual(validateConfig(enabled, { projectRoot, release: true }), []);
-});

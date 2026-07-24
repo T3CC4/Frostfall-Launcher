@@ -62,25 +62,6 @@ function validateConfig(config, options = {}) {
     errors.push('directory.publicKey must be an Ed25519 PEM or base64 SPKI public key')
   }
 
-  if (config.modpack?.enabled) {
-    for (const name of ['bridge', 'wabbajack']) {
-      const tool = config.modpack?.[name]
-      if (!isWebUrl(tool?.url || '', { httpsOnly: true })) {
-        errors.push(`modpack.${name}.url must be an HTTPS URL when enabled`)
-      }
-      if (!/^[a-f0-9]{64}$/i.test(tool?.sha256 || '') || /^0{64}$/.test(tool?.sha256 || '')) {
-        errors.push(`modpack.${name}.sha256 must pin a non-zero SHA-256 when enabled`)
-      }
-    }
-    if (config.modpack?.wabbajack?.version !== '4.2.1.4') {
-      errors.push('modpack.wabbajack.version must be pinned to 4.2.1.4')
-    }
-    const maxModpackBytes = config.modpack?.maxArchiveBytes
-    if (!Number.isInteger(maxModpackBytes) || maxModpackBytes < 1048576 || maxModpackBytes > 1099511627776) {
-      errors.push('modpack.maxArchiveBytes must be between 1 MiB and 1 TiB')
-    }
-  }
-
   for (const field of ['website', 'discord', 'news']) {
     const value = config.links?.[field]
     if (typeof value !== 'string' || (value && !isWebUrl(value))) {

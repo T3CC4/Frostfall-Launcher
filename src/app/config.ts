@@ -27,10 +27,6 @@ export const config = Object.freeze({
     },
     updates: { provider: raw.updates.provider },
     behavior: { defaultLocale: raw.behavior.defaultLocale },
-    modpack: {
-      enabled: Boolean(raw.modpack?.enabled),
-      wabbajackVersion: String(raw.modpack?.wabbajack?.version || ""),
-    },
   },
 });
 

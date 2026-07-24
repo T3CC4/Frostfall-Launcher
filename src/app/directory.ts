@@ -4,7 +4,7 @@ import https from "node:https";
 import { serverSchema } from "./schemas.js";
 import type { Server } from "./types.js";
 
-interface DirectoryOptions {
+export interface DirectoryOptions {
   url: string;
   publicKey: string;
   filters?: Record<string, string>;
@@ -33,6 +33,28 @@ export class DirectoryApi {
           format: "der",
           type: "spki",
         });
+  }
+
+  static async signingKey(url: string): Promise<{
+    publicKey: string;
+    fingerprint: string;
+  }> {
+    const target = new URL("/api/signing-key", requireDirectoryUrl(url));
+    const response = await fetch(target);
+    if (!response.ok) throw new DirectoryError(`Directory returned HTTP ${response.status}.`, response.status);
+    const value = await response.json() as { algorithm?: string; publicKey?: string };
+    if (value.algorithm !== "Ed25519" || !value.publicKey)
+      throw new DirectoryError("Directory returned an invalid signing key.");
+    const key = crypto.createPublicKey({
+      key: Buffer.from(value.publicKey, "base64"),
+      format: "der",
+      type: "spki",
+    });
+    const der = key.export({ format: "der", type: "spki" });
+    return {
+      publicKey: value.publicKey,
+      fingerprint: crypto.createHash("sha256").update(der).digest("hex"),
+    };
   }
 
   async servers(signal?: AbortSignal): Promise<Server[]> {
@@ -86,21 +108,13 @@ export class DirectoryApi {
       item.descriptor.contract !== "directory-managed"
     )
       throw new DirectoryError("Invalid server descriptor.");
-    const gameAddress = String(item.descriptor.gameAddress || "");
-    const ipv6 = gameAddress.match(/^\[([^\]]+)]:(\d+)$/);
-    const separator = gameAddress.lastIndexOf(":");
-    const address =
-      ipv6?.[1] || (separator > 0 ? gameAddress.slice(0, separator) : "");
-    const port = Number(
-      ipv6?.[2] || (separator > 0 ? gameAddress.slice(separator + 1) : 0),
-    );
     return serverSchema.parse({
       key: item.serverId,
       contract: item.descriptor.contract,
       name: item.descriptor.name,
-      address,
-      port,
-      backendUrl: item.descriptor.publicBackendUrl,
+      address: item.descriptor.address,
+      port: item.descriptor.gamePort,
+      resourcesPort: item.descriptor.resourcesPort,
       description: item.descriptor.description || "",
       status: item.status,
       region: item.descriptor.region,
@@ -113,6 +127,7 @@ export class DirectoryApi {
       stale: false,
       listed: true,
       access: item.descriptor.access,
+      modpack: item.descriptor.modpack,
     });
   }
 
@@ -246,12 +261,36 @@ export class DirectoryApi {
 }
 
 export function joinCodeFromUrl(value: string): string | null {
+  return joinTargetFromUrl(value)?.code ?? null;
+}
+
+export function joinTargetFromUrl(value: string): {
+  code: string;
+  directory?: string;
+  fingerprint?: string;
+} | null {
   try {
     const url = new URL(value);
     if (url.protocol !== "skymp:" || url.hostname !== "join") return null;
     const code = decodeURIComponent(url.pathname.replace(/^\//, ""));
-    return /^[A-Za-z0-9._~-]{3,200}$/.test(code) ? code : null;
+    if (!/^[A-Za-z0-9._~-]{3,200}$/.test(code)) return null;
+    const directory = url.searchParams.get("directory") || undefined;
+    const fingerprint = url.searchParams.get("fingerprint") || undefined;
+    if (directory) requireDirectoryUrl(directory);
+    if (fingerprint && !/^[a-f0-9]{64}$/i.test(fingerprint)) return null;
+    return { code, directory, fingerprint };
   } catch {
     return null;
   }
+}
+
+function requireDirectoryUrl(value: string): string {
+  const url = new URL(value);
+  const loopback = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
+    throw new DirectoryError("Custom Directory must use HTTPS.");
+  url.pathname = "/";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
 }

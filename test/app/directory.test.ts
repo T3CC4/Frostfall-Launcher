@@ -2,15 +2,19 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import http from "node:http";
 import test from "node:test";
-import { DirectoryApi, joinCodeFromUrl } from "../../src/app/directory.js";
+import { DirectoryApi, joinCodeFromUrl, joinTargetFromUrl } from "../../src/app/directory.js";
 
 test("private join URLs accept only the expected scheme and safe code", () => {
   assert.equal(joinCodeFromUrl("skymp://join/friends-only"), "friends-only");
   assert.equal(joinCodeFromUrl("https://join/friends-only"), null);
   assert.equal(joinCodeFromUrl("skymp://join/%2Fescape"), null);
+  assert.deepEqual(
+    joinTargetFromUrl("skymp://join/friends-only?directory=https%3A%2F%2Fdirectory.example&fingerprint=" + "a".repeat(64)),
+    { code: "friends-only", directory: "https://directory.example", fingerprint: "a".repeat(64) },
+  );
 });
 
-test("directory verifies the exact signed catalog and maps operator backends", async () => {
+test("directory verifies the exact signed catalog without operator backends", async () => {
   const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
   let valid = true;
   const server = http.createServer((_req, res) => {
@@ -21,8 +25,9 @@ test("directory verifies the exact signed catalog and maps operator backends", a
           descriptor: {
             contract: "directory-managed",
             name: "EU",
-            gameAddress: "game.example:7777",
-            publicBackendUrl: "https://operator.example",
+            address: "game.example",
+            gamePort: 7777,
+            resourcesPort: 7778,
             region: "eu",
             tags: [],
             versions: {},
@@ -51,7 +56,7 @@ test("directory verifies the exact signed catalog and maps operator backends", a
         name: "EU",
         address: "game.example",
         port: 7777,
-        backendUrl: "https://operator.example",
+        resourcesPort: 7778,
         description: "",
         status: { state: "online", online: 1, maxPlayers: 10 },
         region: "eu",
@@ -63,6 +68,7 @@ test("directory verifies the exact signed catalog and maps operator backends", a
         stale: false,
         listed: true,
         access: undefined,
+        modpack: undefined,
       },
     ]);
     valid = false;
@@ -102,7 +108,7 @@ test("directory auth client keeps poll and session tokens in authorization heade
       );
     if (req.url === "/api/servers/server/play-grants")
       return res.end(
-        JSON.stringify({ grant: { audience: "server" }, signature: "signed" }),
+        JSON.stringify({ ticket: "direct-ticket", expiresAt: Date.now() + 60000 }),
       );
     res.statusCode = 404;
     res.end(JSON.stringify({ error: { message: "missing" } }));
@@ -121,8 +127,8 @@ test("directory auth client keeps poll and session tokens in authorization heade
       "session",
     );
     assert.equal(
-      (await api.playGrant("server", "session")).grant.audience,
-      "server",
+      (await api.playGrant("server", "session")).ticket,
+      "direct-ticket",
     );
     assert.deepEqual(
       seen.map((item) => [item.method, item.url, item.authorization]),

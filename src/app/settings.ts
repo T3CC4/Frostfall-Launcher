@@ -11,6 +11,9 @@ type StoreShape = {
   preferredServerKey: string;
   directoryStatus: "live" | "empty" | "stale" | "unavailable";
   directoryError: string;
+  directoryUrl: string;
+  directoryFingerprint: string;
+  directoryPublicKey: string;
   encryptedDirectorySession: string;
   encryptedServerSessions: Record<string, string>;
   serverProfileIds: Record<string, number>;
@@ -41,6 +44,9 @@ export class SettingsService {
         preferredServerKey: "",
         directoryStatus: "unavailable",
         directoryError: "",
+        directoryUrl: "",
+        directoryFingerprint: "",
+        directoryPublicKey: "",
         encryptedDirectorySession: "",
         encryptedServerSessions: {},
         serverProfileIds: {},
@@ -101,15 +107,16 @@ export class SettingsService {
   getServerSession(key: string) {
     return this.decrypt(this.store.get("encryptedServerSessions")[key] || "");
   }
-  setServerSession(key: string, value: string, profileId: number) {
+  setServerSession(key: string, value: string, profileId?: number) {
     this.store.set("encryptedServerSessions", {
       ...this.store.get("encryptedServerSessions"),
       [key]: this.encrypt(value),
     });
-    this.store.set("serverProfileIds", {
-      ...this.store.get("serverProfileIds"),
-      [key]: profileId,
-    });
+    if (profileId !== undefined)
+      this.store.set("serverProfileIds", {
+        ...this.store.get("serverProfileIds"),
+        [key]: profileId,
+      });
   }
   serverProfileId(key: string) {
     return this.store.get("serverProfileIds")[key] ?? null;
@@ -228,6 +235,8 @@ export class SettingsService {
       favoriteServerKeys: this.store.get("favoriteServerKeys"),
       directoryStatus: this.store.get("directoryStatus"),
       directoryError: this.store.get("directoryError"),
+      directoryUrl: this.store.get("directoryUrl"),
+      directoryFingerprint: this.store.get("directoryFingerprint"),
       discordUser: this.store.get("discordUser"),
       modpackPath: this.modpackPath(),
       locale: this.store.get("locale"),

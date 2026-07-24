@@ -18,6 +18,10 @@ module.exports = {
     'launcher.config.json',
     'package.json',
   ],
+  extraResources: [
+    { from: 'runtime', to: 'runtime', filter: ['**/*'] },
+    { from: 'vortex-extension', to: 'vortex-extension', filter: ['**/*'] },
+  ],
   publish: getPublishConfig(config),
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],

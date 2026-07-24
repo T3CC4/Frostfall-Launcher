@@ -5,6 +5,7 @@ const api: ElectronApi = {
   getAppConfig: () => ipcRenderer.invoke("app:getConfig"),
   loadSettings: () => ipcRenderer.invoke("settings:load"),
   saveSettings: (data) => ipcRenderer.invoke("settings:save", data),
+  configureDirectory: (url) => ipcRenderer.invoke("directory:configure", url),
   selectServer: (key) => ipcRenderer.invoke("server:select", key),
   toggleFavorite: (key) => ipcRenderer.invoke("server:toggleFavorite", key),
   showServerBrowser: () => ipcRenderer.invoke("server:browser"),
