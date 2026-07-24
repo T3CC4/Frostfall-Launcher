@@ -144,3 +144,4 @@ vite.config.ts.timestamp-*
 package-lock.json
 package-lock.json
 /.claude
+runtime/Mod.Organizer.exe
