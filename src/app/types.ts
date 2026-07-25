@@ -29,6 +29,17 @@ export interface Server {
     loadOrder: string[];
     hashes: Record<string, string>;
   };
+  identity: {
+    algorithm: "Ed25519";
+    publicKey: string;
+    fingerprint: string;
+  };
+  clientPack?: {
+    port: number;
+    version: string;
+    clientApiVersion: 1;
+    manifestSha256: string;
+  };
 }
 
 export interface BackendCapabilities {
@@ -99,11 +110,15 @@ export interface ManifestFile {
 
 export interface ClientManifest {
   schemaVersion: 1;
-  serverKey: string;
+  serverId: string;
   version: string;
-  archive: { size: number; sha256: string; etag?: string };
+  clientApiVersion: 1;
+  permission: "full-skyrim-platform";
+  entrypoint: "Platform/Plugins/skymp-server-extension.js";
+  ui?: string;
+  archive: { format: "zip"; size: number; sha256: string };
   files: ManifestFile[];
-  signature: { algorithm: "ed25519"; value: string };
+  signature: { algorithm: "Ed25519"; value: string };
 }
 
 export interface ModpackManifest {

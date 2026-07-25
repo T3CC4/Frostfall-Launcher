@@ -6,10 +6,12 @@ import test from "node:test";
 import vm from "node:vm";
 import { createRequire } from "node:module";
 
-const nativeRequire = createRequire(import.meta.url);
+const nativeRequire = createRequire(path.resolve("package.json"));
 
 test("Vortex extension writes a receipt only after the pinned Collection and its dependencies are installed", async () => {
-  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "skymp-vortex-extension-"));
+  const root = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), "skymp-vortex-extension-"),
+  );
   try {
     const source = await fs.promises.readFile(
       path.resolve("vortex-extension", "index.js"),

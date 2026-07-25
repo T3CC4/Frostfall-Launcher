@@ -41,8 +41,15 @@ export class DirectoryApi {
   }> {
     const target = new URL("/api/signing-key", requireDirectoryUrl(url));
     const response = await fetch(target);
-    if (!response.ok) throw new DirectoryError(`Directory returned HTTP ${response.status}.`, response.status);
-    const value = await response.json() as { algorithm?: string; publicKey?: string };
+    if (!response.ok)
+      throw new DirectoryError(
+        `Directory returned HTTP ${response.status}.`,
+        response.status,
+      );
+    const value = (await response.json()) as {
+      algorithm?: string;
+      publicKey?: string;
+    };
     if (value.algorithm !== "Ed25519" || !value.publicKey)
       throw new DirectoryError("Directory returned an invalid signing key.");
     const key = crypto.createPublicKey({
@@ -128,6 +135,8 @@ export class DirectoryApi {
       listed: true,
       access: item.descriptor.access,
       modpack: item.descriptor.modpack,
+      identity: item.identity,
+      clientPack: item.descriptor.clientPack,
     });
   }
 

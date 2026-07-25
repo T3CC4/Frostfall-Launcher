@@ -95,9 +95,8 @@
     "security": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["clientManifestPublicKey", "externalHosts"],
+      "required": ["externalHosts"],
       "properties": {
-        "clientManifestPublicKey": { "type": "string", "minLength": 80 },
         "externalHosts": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },

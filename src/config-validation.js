@@ -103,10 +103,6 @@ function validateConfig(config, options = {}) {
     errors.push('updates.checkIntervalMinutes must be an integer from 15 to 10080')
   }
 
-  const publicKey = config.security?.clientManifestPublicKey || ''
-  if (!/^-----BEGIN PUBLIC KEY-----[\s\S]+-----END PUBLIC KEY-----$/.test(publicKey)) {
-    errors.push('security.clientManifestPublicKey must be an Ed25519 PEM public key')
-  }
   if (!Array.isArray(config.security?.externalHosts) || config.security.externalHosts.some(host => typeof host !== 'string' || !host.trim())) {
     errors.push('security.externalHosts must be an array of host names')
   }

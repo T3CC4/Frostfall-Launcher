@@ -26,11 +26,18 @@ export function verifyManifestSignature(
   publicKey: string,
 ): boolean {
   try {
+    const key = publicKey.includes("BEGIN PUBLIC KEY")
+      ? crypto.createPublicKey(publicKey)
+      : crypto.createPublicKey({
+          key: Buffer.from(publicKey, "base64"),
+          format: "der",
+          type: "spki",
+        });
     return crypto.verify(
       null,
       Buffer.from(canonicalize(manifestPayload(manifest))),
-      publicKey,
-      Buffer.from(manifest.signature.value, "base64"),
+      key,
+      Buffer.from(manifest.signature.value, "base64url"),
     );
   } catch {
     return false;
@@ -43,11 +50,23 @@ export function safeRelativePath(value: string): string {
     !normalized ||
     normalized.startsWith("/") ||
     /^[A-Za-z]:/.test(normalized) ||
-    normalized.includes("\0")
+    normalized.includes("\0") ||
+    normalized.includes(":")
   )
     throw new Error(`Unsafe archive path: ${value}`);
   const clean = path.posix.normalize(normalized);
-  if (clean === ".." || clean.startsWith("../"))
+  if (
+    clean !== normalized ||
+    clean === ".." ||
+    clean.startsWith("../") ||
+    clean
+      .split("/")
+      .some(
+        (part) =>
+          /[ .]$/.test(part) ||
+          /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part),
+      )
+  )
     throw new Error(`Archive path escapes destination: ${value}`);
   return clean;
 }

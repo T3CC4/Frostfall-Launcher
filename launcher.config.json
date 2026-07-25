@@ -32,7 +32,6 @@
     "checkIntervalMinutes": 240
   },
   "security": {
-    "clientManifestPublicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA3mOvzuFgf9zc9lRARgEMILfLuxfYuxGwbXFxSSon5q8=\n-----END PUBLIC KEY-----",
     "externalHosts": [
       "github.com",
       "www.nexusmods.com",

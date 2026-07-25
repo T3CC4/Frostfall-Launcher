@@ -2,15 +2,26 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import http from "node:http";
 import test from "node:test";
-import { DirectoryApi, joinCodeFromUrl, joinTargetFromUrl } from "../../src/app/directory.js";
+import {
+  DirectoryApi,
+  joinCodeFromUrl,
+  joinTargetFromUrl,
+} from "../../src/app/directory.js";
 
 test("private join URLs accept only the expected scheme and safe code", () => {
   assert.equal(joinCodeFromUrl("skymp://join/friends-only"), "friends-only");
   assert.equal(joinCodeFromUrl("https://join/friends-only"), null);
   assert.equal(joinCodeFromUrl("skymp://join/%2Fescape"), null);
   assert.deepEqual(
-    joinTargetFromUrl("skymp://join/friends-only?directory=https%3A%2F%2Fdirectory.example&fingerprint=" + "a".repeat(64)),
-    { code: "friends-only", directory: "https://directory.example", fingerprint: "a".repeat(64) },
+    joinTargetFromUrl(
+      "skymp://join/friends-only?directory=https%3A%2F%2Fdirectory.example&fingerprint=" +
+        "a".repeat(64),
+    ),
+    {
+      code: "friends-only",
+      directory: "https://directory.example",
+      fingerprint: "a".repeat(64),
+    },
   );
 });
 
@@ -33,6 +44,16 @@ test("directory verifies the exact signed catalog without operator backends", as
             versions: {},
           },
           status: { state: "online", online: 1, maxPlayers: 10 },
+          identity: {
+            algorithm: "Ed25519",
+            publicKey: publicKey
+              .export({ format: "der", type: "spki" })
+              .toString("base64"),
+            fingerprint: `sha256:${crypto
+              .createHash("sha256")
+              .update(publicKey.export({ format: "der", type: "spki" }))
+              .digest("base64url")}`,
+          },
         },
       ],
     });
@@ -69,6 +90,17 @@ test("directory verifies the exact signed catalog without operator backends", as
         listed: true,
         access: undefined,
         modpack: undefined,
+        identity: {
+          algorithm: "Ed25519",
+          publicKey: publicKey
+            .export({ format: "der", type: "spki" })
+            .toString("base64"),
+          fingerprint: `sha256:${crypto
+            .createHash("sha256")
+            .update(publicKey.export({ format: "der", type: "spki" }))
+            .digest("base64url")}`,
+        },
+        clientPack: undefined,
       },
     ]);
     valid = false;
@@ -108,7 +140,10 @@ test("directory auth client keeps poll and session tokens in authorization heade
       );
     if (req.url === "/api/servers/server/play-grants")
       return res.end(
-        JSON.stringify({ ticket: "direct-ticket", expiresAt: Date.now() + 60000 }),
+        JSON.stringify({
+          ticket: "direct-ticket",
+          expiresAt: Date.now() + 60000,
+        }),
       );
     res.statusCode = 404;
     res.end(JSON.stringify({ error: { message: "missing" } }));

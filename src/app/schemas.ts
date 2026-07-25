@@ -44,6 +44,19 @@ export const serverSchema = z
         hashes: z.record(z.string(), z.string()),
       })
       .optional(),
+    identity: z.object({
+      algorithm: z.literal("Ed25519"),
+      publicKey: z.string().min(40).max(500),
+      fingerprint: z.string().regex(/^sha256:[A-Za-z0-9_-]{43}$/),
+    }),
+    clientPack: z
+      .object({
+        port: z.number().int().min(1).max(65535),
+        version: z.string().min(1).max(100),
+        clientApiVersion: z.literal(1),
+        manifestSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .optional(),
   })
   .passthrough();
 
@@ -55,16 +68,20 @@ export const manifestFileSchema = z.object({
 
 export const clientManifestSchema = z.object({
   schemaVersion: z.literal(1),
-  serverKey: z.string().min(1).max(100),
+  serverId: z.string().min(1).max(100),
   version: z.string().min(1).max(100),
+  clientApiVersion: z.literal(1),
+  permission: z.literal("full-skyrim-platform"),
+  entrypoint: z.literal("Platform/Plugins/skymp-server-extension.js"),
+  ui: z.string().max(500).optional(),
   archive: z.object({
+    format: z.literal("zip"),
     size: z.number().int().positive(),
     sha256: z.string().regex(/^[a-f0-9]{64}$/i),
-    etag: z.string().max(300).optional(),
   }),
   files: z.array(manifestFileSchema).min(1).max(10000),
   signature: z.object({
-    algorithm: z.literal("ed25519"),
+    algorithm: z.literal("Ed25519"),
     value: z.string().min(40),
   }),
 });

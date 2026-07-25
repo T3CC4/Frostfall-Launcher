@@ -32,6 +32,7 @@ import {
 } from "./schemas.js";
 import { LauncherUpdater } from "./updater.js";
 import type { PreflightReport } from "./types.js";
+import { ClientPackService } from "./client-pack.js";
 
 if (!app.isPackaged) dotenv.config();
 app.setName(config.app.productName);
@@ -53,6 +54,7 @@ let tray: Tray | null = null;
 let quitting = false;
 let settings: SettingsService;
 let modpack: VortexMo2Service;
+let clientPacks: ClientPackService;
 let latestPreflight: PreflightReport | null = null;
 let dashboardController: AbortController | null = null;
 type JoinTarget = NonNullable<ReturnType<typeof joinTargetFromUrl>>;
@@ -131,7 +133,9 @@ async function applyJoinTarget(target: JoinTarget) {
       settings.store.get("directoryFingerprint").toLowerCase() !==
         target.fingerprint.toLowerCase()
     ) {
-      throw new Error("Join-link fingerprint does not match the active Directory.");
+      throw new Error(
+        "Join-link fingerprint does not match the active Directory.",
+      );
     }
     await applyJoinCode(target.code);
   } catch (error) {
@@ -273,7 +277,7 @@ function removeAuthFile() {
   }
 }
 
-function writeClientSettings() {
+async function writeClientSettings() {
   const root = modpack.runtimeRoot();
   const server = settings.activeServer();
   if (!root || !server) throw new Error("Skyrim path or server is missing.");
@@ -289,6 +293,11 @@ function writeClientSettings() {
     "server-ip": server.address,
     "server-port": Number(server.port),
   };
+  const clientPack = await clientPacks.runtimeAttestation(server, root);
+  if (clientPack) {
+    value["client-pack-version"] = clientPack.version;
+    value["client-pack-manifest-sha256"] = clientPack.manifestSha256;
+  }
   const profileId = settings.serverProfileId(server.key);
   const session = settings.getServerSession(server.key);
   if (!session)
@@ -297,27 +306,49 @@ function writeClientSettings() {
   fs.writeFileSync(destination, `${JSON.stringify(value, null, 2)}\n`);
   const target = authFile();
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, `//${JSON.stringify({
-    session,
-    ...(profileId == null ? {} : { profileId }),
-  })}`, {
-    mode: 0o600,
-  });
+  fs.writeFileSync(
+    target,
+    `//${JSON.stringify({
+      session,
+      ...(profileId == null ? {} : { profileId }),
+    })}`,
+    {
+      mode: 0o600,
+    },
+  );
 }
 
 async function preflight(): Promise<PreflightReport> {
   const server = settings.activeServer();
   const skyrimRoot = settings.store.get("skyrimPath");
   const checks: PreflightReport["checks"] = [];
-  checks.push(skyrimRoot && fs.existsSync(path.join(skyrimRoot, "SkyrimSE.exe"))
-    ? { id: "skyrim", status: "ok", message: "Skyrim installation found." }
-    : { id: "skyrim", status: "error", message: "Skyrim Special Edition was not found." });
-  checks.push(server
-    ? { id: "server", status: "ok", message: `Server ${server.name} selected.` }
-    : { id: "server", status: "error", message: "No game server is selected." });
-  checks.push(settings.getDirectorySession()
-    ? { id: "auth", status: "ok", message: "Directory login is ready." }
-    : { id: "auth", status: "error", message: "Discord login is required." });
+  checks.push(
+    skyrimRoot && fs.existsSync(path.join(skyrimRoot, "SkyrimSE.exe"))
+      ? { id: "skyrim", status: "ok", message: "Skyrim installation found." }
+      : {
+          id: "skyrim",
+          status: "error",
+          message: "Skyrim Special Edition was not found.",
+        },
+  );
+  checks.push(
+    server
+      ? {
+          id: "server",
+          status: "ok",
+          message: `Server ${server.name} selected.`,
+        }
+      : {
+          id: "server",
+          status: "error",
+          message: "No game server is selected.",
+        },
+  );
+  checks.push(
+    settings.getDirectorySession()
+      ? { id: "auth", status: "ok", message: "Directory login is ready." }
+      : { id: "auth", status: "error", message: "Discord login is required." },
+  );
   const report: PreflightReport = {
     ready: false,
     repairable: false,
@@ -333,6 +364,17 @@ async function preflight(): Promise<PreflightReport> {
   );
   report.offline ||= modpackReport.offline;
   report.repairable ||= modpackReport.repairable;
+  if (server && modpack.root()) {
+    const packReport = await clientPacks.preflight(server, modpack.root());
+    report.checks.push({
+      id: "client-pack",
+      status: packReport.status,
+      message: packReport.message,
+    });
+    report.downloadBytes += packReport.downloadBytes;
+    report.offline ||= packReport.offline;
+    report.repairable ||= packReport.status === "repairable";
+  }
   report.ready = !report.checks.some(
     (check) => check.status === "error" || check.status === "repairable",
   );
@@ -357,7 +399,7 @@ async function launchGame() {
   const root = modpack.root();
   const server = settings.activeServer();
   if (!root || !server) throw new Error("Skyrim path and server are required.");
-  writeClientSettings();
+  await writeClientSettings();
   const exe = path.join(root, "ModOrganizer.exe");
   if (!fs.existsSync(exe))
     throw new Error("Managed ModOrganizer.exe is missing.");
@@ -376,6 +418,31 @@ async function launchGame() {
   const behavior = settings.store.get("afterLaunch");
   if (behavior === "minimize") win?.minimize();
   if (behavior === "close") win?.close();
+}
+
+async function confirmClientPackTrust(
+  server: NonNullable<ReturnType<SettingsService["activeServer"]>>,
+): Promise<boolean> {
+  if (!server.clientPack) return true;
+  const answer = await dialog.showMessageBox(win!, {
+    type: "warning",
+    buttons: ["Cancel", "Trust and Continue"],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+    title: "Full-trust server Client Pack",
+    message: `${server.name} — Client Pack ${server.clientPack.version}`,
+    detail: [
+      `Server identity fingerprint:\n${server.identity.fingerprint}`,
+      "",
+      "This pack runs JavaScript with full Skyrim Platform and Node.js rights.",
+      "It can read and write files accessible to the game, access the network,",
+      "inspect your game state and execute native Skyrim Platform APIs.",
+      "",
+      "Only continue if you trust this server operator.",
+    ].join("\n"),
+  });
+  return answer.response === 1;
 }
 
 async function loadSettings() {
@@ -526,7 +593,6 @@ function registerIpc() {
     dashboardController = new AbortController();
     const server = settings.activeServer();
     if (!server) return { error: "No server selected." };
-    const signal = dashboardController.signal;
     const capabilities = {
       authentication: "directory-discord",
       news: false,
@@ -546,26 +612,45 @@ function registerIpc() {
     };
   });
   handle("discord:login", async () => {
-    const flow = await directory.authStart();
-    await shell.openExternal(flow.authorizationUrl);
-    for (let attempt = 0; attempt < 120; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      try {
-        const data = await directory.authStatus(flow.flowId, flow.pollToken);
-        if (data?.status !== "complete" || !data.sessionToken) continue;
-        settings.setDirectorySession(data.sessionToken);
-        const user = {
-          username: data.user?.username || "Discord user",
-          tag: data.user?.username,
-          avatar: data.user?.avatar || null,
-        };
-        settings.store.set("discordUser", user);
-        return { success: true, user };
-      } catch (error: any) {
-        log.warn("Directory Discord polling failed", error);
+    try {
+      const flow = await directory.authStart();
+      await shell.openExternal(flow.authorizationUrl);
+      const expiresAt = Math.min(
+        Number(flow.expiresAt) || Date.now() + 2 * 60 * 1000,
+        Date.now() + 10 * 60 * 1000,
+      );
+      while (Date.now() < expiresAt) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        try {
+          const data = await directory.authStatus(flow.flowId, flow.pollToken);
+          if (data?.status !== "complete" || !data.sessionToken) continue;
+          settings.setDirectorySession(data.sessionToken);
+          const user = {
+            username: data.user?.username || "Discord user",
+            tag: data.user?.username,
+            avatar: data.user?.avatar || null,
+          };
+          settings.store.set("discordUser", user);
+          return { success: true, user };
+        } catch (error) {
+          log.warn("Directory Discord polling failed", error);
+          if (
+            error instanceof DirectoryError &&
+            error.statusCode >= 400 &&
+            error.statusCode < 500
+          )
+            return { success: false, error: error.message };
+        }
       }
+      return { success: false, error: "Discord login timed out." };
+    } catch (error) {
+      log.warn("Directory Discord login failed", error);
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Discord login failed.",
+      };
     }
-    return { success: false, error: "Discord login timed out." };
   });
   handle("discord:logout", async () => {
     const token = settings.getDirectorySession();
@@ -585,7 +670,16 @@ function registerIpc() {
   });
   handle("install:repair", async () => {
     try {
+      const server = settings.activeServer();
+      if (!server) throw new Error("Select a server first.");
+      if (!(await confirmClientPackTrust(server))) {
+        return {
+          success: false,
+          error: "Client Pack permission was not granted.",
+        };
+      }
       await modpack.install();
+      await clientPacks.install(server, modpack.root());
       latestPreflight = await preflight();
       return { success: latestPreflight.ready };
     } catch (error) {
@@ -593,10 +687,18 @@ function registerIpc() {
     }
   });
   handle("install:cancel", async () => {
-    return await modpack.cancel();
+    return clientPacks.cancel() || (await modpack.cancel());
   });
   handle("play:start", async () => {
     try {
+      const selected = settings.activeServer();
+      if (!selected) throw new Error("Select a server first.");
+      if (!(await confirmClientPackTrust(selected))) {
+        return {
+          success: false,
+          error: "Client Pack permission was not granted.",
+        };
+      }
       await authorizeForPlay();
       latestPreflight = await preflight();
       if (!latestPreflight.ready)
@@ -657,11 +759,13 @@ if (gotLock)
     .then(async () => {
       settings = new SettingsService();
       if (!settings.store.get("directoryUrl")) {
-        const officialKey = crypto.createPublicKey({
-          key: Buffer.from(config.directory.publicKey, "base64"),
-          format: "der",
-          type: "spki",
-        }).export({ format: "der", type: "spki" });
+        const officialKey = crypto
+          .createPublicKey({
+            key: Buffer.from(config.directory.publicKey, "base64"),
+            format: "der",
+            type: "spki",
+          })
+          .export({ format: "der", type: "spki" });
         settings.store.set("directoryUrl", config.directory.url);
         settings.store.set("directoryPublicKey", config.directory.publicKey);
         settings.store.set(
@@ -683,6 +787,10 @@ if (gotLock)
         runtimeSource: app.isPackaged
           ? path.join(process.resourcesPath, "runtime")
           : path.join(app.getAppPath(), "runtime"),
+      });
+      clientPacks = new ClientPackService({
+        userData: app.getPath("userData"),
+        maxArchiveBytes: config.behavior.maxClientPackageBytes,
       });
       registerIpc();
       createWindow();

@@ -15,11 +15,16 @@ function signedManifest(): { manifest: ClientManifest; publicKey: string } {
   const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
   const manifest: ClientManifest = {
     schemaVersion: 1,
-    serverKey: "default",
+    serverId: "default",
     version: "2.0.0",
-    archive: { size: 3, sha256: "a".repeat(64) },
-    files: [{ path: "Data/example.txt", size: 3, sha256: "b".repeat(64) }],
-    signature: { algorithm: "ed25519", value: "" },
+    clientApiVersion: 1,
+    permission: "full-skyrim-platform",
+    entrypoint: "Platform/Plugins/skymp-server-extension.js",
+    archive: { format: "zip", size: 3, sha256: "a".repeat(64) },
+    files: [
+      { path: "Platform/UI/example.txt", size: 3, sha256: "b".repeat(64) },
+    ],
+    signature: { algorithm: "Ed25519", value: "" },
   };
   manifest.signature.value = crypto
     .sign(
@@ -27,7 +32,7 @@ function signedManifest(): { manifest: ClientManifest; publicKey: string } {
       Buffer.from(canonicalize(manifestPayload(manifest))),
       privateKey,
     )
-    .toString("base64");
+    .toString("base64url");
   return {
     manifest,
     publicKey: publicKey.export({ type: "spki", format: "pem" }).toString(),
