@@ -11,8 +11,8 @@ const roots = [
 ];
 const forbidden = [
   { label: "/api/v2", pattern: /\/api\/v2\b/ },
-  { label: "/v1", pattern: /\/v1\b/ },
-  { label: "/v2", pattern: /\/v2\b/ },
+  { label: "/v1", pattern: /\/v1(?:\/|(?=["'`\s?#]))/ },
+  { label: "/v2", pattern: /\/v2(?:\/|(?=["'`\s?#]))/ },
   { label: "API_URL", pattern: /\bAPI_URL\b/ },
   { label: "DIRECTORY_ENABLED", pattern: /\bDIRECTORY_ENABLED\b/ },
   { label: "apiBasePath", pattern: /\bapiBasePath\b/ },

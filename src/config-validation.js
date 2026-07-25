@@ -103,6 +103,13 @@ function validateConfig(config, options = {}) {
     errors.push('updates.checkIntervalMinutes must be an integer from 15 to 10080')
   }
 
+  if (!isWebUrl(config.tools?.mo2?.url || '', { httpsOnly: true })) {
+    errors.push('tools.mo2.url must be an HTTPS URL')
+  }
+  if (!/^[a-f0-9]{64}$/i.test(config.tools?.mo2?.sha256 || '')) {
+    errors.push('tools.mo2.sha256 must be a SHA-256 digest')
+  }
+
   if (!Array.isArray(config.security?.externalHosts) || config.security.externalHosts.some(host => typeof host !== 'string' || !host.trim())) {
     errors.push('security.externalHosts must be an array of host names')
   }

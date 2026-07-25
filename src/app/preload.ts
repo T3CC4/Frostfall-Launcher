@@ -14,6 +14,7 @@ const api: ElectronApi = {
   modpackStatus: () => ipcRenderer.invoke("modpack:status"),
   nexusLogin: () => ipcRenderer.invoke("modpack:nexusLogin"),
   selectModpackLocation: () => ipcRenderer.invoke("modpack:selectLocation"),
+  selectMo2Installation: () => ipcRenderer.invoke("modpack:selectMo2"),
   fetchDashboard: () => ipcRenderer.invoke("dashboard:load"),
   discordLogin: () => ipcRenderer.invoke("discord:login"),
   discordLogout: () => ipcRenderer.invoke("discord:logout"),

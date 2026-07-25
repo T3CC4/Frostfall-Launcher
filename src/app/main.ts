@@ -21,7 +21,11 @@ import {
   joinTargetFromUrl,
 } from "./directory.js";
 import { SettingsService } from "./settings.js";
-import { assertManagedRoot, VortexMo2Service } from "./vortex-mo2.js";
+import {
+  assertManagedRoot,
+  isMo2Runtime,
+  VortexMo2Service,
+} from "./vortex-mo2.js";
 import { detectSkyrim, validateSkyrim } from "./discovery.js";
 import { exportDiagnostics } from "./diagnostics.js";
 import { initializeLogger } from "./logger.js";
@@ -571,6 +575,21 @@ function registerIpc() {
   });
   handle("modpack:status", () => modpack.status());
   handle("modpack:nexusLogin", () => modpack.login());
+  handle("modpack:selectMo2", async () => {
+    const result = await dialog.showOpenDialog(win!, {
+      title: "Select the Mod Organizer 2 installation folder",
+      properties: ["openDirectory"],
+    });
+    if (!result.canceled && result.filePaths[0]) {
+      if (!isMo2Runtime(result.filePaths[0])) {
+        throw new Error(
+          "The selected folder is not a complete MO2 runtime. Installer executables are not accepted.",
+        );
+      }
+      settings.store.set("mo2Path", result.filePaths[0]);
+    }
+    return modpack.status();
+  });
   handle("modpack:selectLocation", async () => {
     const server = settings.activeServer();
     const skyrim = settings.store.get("skyrimPath");
@@ -584,7 +603,9 @@ function registerIpc() {
     if (!result.canceled && result.filePaths[0])
       settings.setModpackPath(
         server.key,
-        assertManagedRoot(result.filePaths[0], skyrim, server.key),
+        modpack.isolatedRoot(
+          assertManagedRoot(result.filePaths[0], skyrim, server.key),
+        ),
       );
     return settings.publicSettings();
   });
@@ -607,7 +628,7 @@ function registerIpc() {
       info: { key: server.key, access: { allowed: true }, capabilities },
       capabilities,
       news: [],
-      mods: server.modpack?.plugins ?? [],
+      mods: server.modpack ? await modpack.modEntries() : [],
       metrics: null,
     };
   });
@@ -680,9 +701,17 @@ function registerIpc() {
       }
       await modpack.install();
       await clientPacks.install(server, modpack.root());
+      await modpack.commit();
+      send("install:state", {
+        phase: "complete",
+        message: "The isolated server MO2 instance is ready.",
+      });
       latestPreflight = await preflight();
       return { success: latestPreflight.ready };
     } catch (error) {
+      await modpack.rollback().catch((rollbackError) =>
+        log.error("MO2 transaction rollback failed", rollbackError),
+      );
       return { success: false, error: (error as Error).message };
     }
   });
@@ -787,6 +816,14 @@ if (gotLock)
         runtimeSource: app.isPackaged
           ? path.join(process.resourcesPath, "runtime")
           : path.join(app.getAppPath(), "runtime"),
+        vortexExtension: app.isPackaged
+          ? path.join(process.resourcesPath, "vortex-extension")
+          : path.join(app.getAppPath(), "vortex-extension"),
+        skyrimPath: () => settings.store.get("skyrimPath"),
+        getManifest: (serverId, signal) =>
+          directory.modpack(serverId, signal),
+        mo2Bootstrap: config.tools?.mo2,
+        emit: (state) => send("install:state", state),
       });
       clientPacks = new ClientPackService({
         userData: app.getPath("userData"),

@@ -17,6 +17,14 @@ export const config = Object.freeze({
     publicKey: directoryPublicKey,
     filters: { ...(raw.directory?.filters || {}) },
   },
+  tools: {
+    mo2: raw.tools?.mo2
+      ? {
+          url: String(raw.tools.mo2.url),
+          sha256: String(raw.tools.mo2.sha256).toLowerCase(),
+        }
+      : undefined,
+  },
   public: {
     app: { ...raw.app },
     links: { ...raw.links },

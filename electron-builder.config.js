@@ -19,7 +19,6 @@ module.exports = {
     'package.json',
   ],
   extraResources: [
-    { from: 'runtime', to: 'runtime', filter: ['**/*'] },
     { from: 'vortex-extension', to: 'vortex-extension', filter: ['**/*'] },
   ],
   publish: getPublishConfig(config),

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { ClientManifest, ModpackManifest } from "./types.js";
+import type { ClientManifest } from "./types.js";
 
 export function canonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -13,7 +13,7 @@ export function canonicalize(value: unknown): string {
     .join(",")}}`;
 }
 
-type SignedManifest = ClientManifest | ModpackManifest;
+type SignedManifest = ClientManifest;
 
 export function manifestPayload(manifest: SignedManifest) {
   const payload: Partial<SignedManifest> = { ...manifest };

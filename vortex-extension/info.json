@@ -1,0 +1,9 @@
+{
+  "id": "skymp-collection-helper",
+  "name": "SkyMP Collection Helper",
+  "author": "SkyMP",
+  "version": "1.0.0",
+  "description": "Installs pinned Nexus Collections for isolated SkyMP MO2 server instances.",
+  "type": "extension",
+  "main": "index.js"
+}

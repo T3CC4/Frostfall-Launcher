@@ -31,6 +31,12 @@
     "url": "https://api.frostfall.online/launcher-updates",
     "checkIntervalMinutes": 240
   },
+  "tools": {
+    "mo2": {
+      "url": "https://github.com/ModOrganizer2/modorganizer/releases/download/v2.5.2/Mod.Organizer-2.5.2.exe",
+      "sha256": "d3f699d4042ff209f596d98dacd7ebaa99d27e01c3a17cd5d4e19c2bab6ed006"
+    }
+  },
   "security": {
     "externalHosts": [
       "github.com",

@@ -10,6 +10,7 @@
     "links",
     "branding",
     "updates",
+    "tools",
     "security",
     "behavior"
   ],
@@ -89,6 +90,22 @@
           "type": "integer",
           "minimum": 15,
           "maximum": 10080
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mo2"],
+      "properties": {
+        "mo2": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "sha256"],
+          "properties": {
+            "url": { "type": "string", "format": "uri", "pattern": "^https://" },
+            "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" }
+          }
         }
       }
     },

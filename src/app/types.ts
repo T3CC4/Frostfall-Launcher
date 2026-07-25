@@ -23,11 +23,9 @@ export interface Server {
   };
   resourcesPort?: number;
   modpack?: {
-    nexusCollection: string;
-    revision: number;
-    plugins: string[];
-    loadOrder: string[];
-    hashes: Record<string, string>;
+    collection: ModCollectionRef;
+    manifestSha256: string;
+    modCount: number;
   };
   identity: {
     algorithm: "Ed25519";
@@ -40,6 +38,30 @@ export interface Server {
     clientApiVersion: 1;
     manifestSha256: string;
   };
+}
+
+export interface ModCollectionRef {
+  game: "skyrimspecialedition";
+  slug: string;
+  revision: number;
+}
+
+export interface ModpackMod {
+  key: string;
+  name: string;
+  version: string;
+  nexus: { modId: number; fileId: number };
+  installOrder: number;
+  treeSha256: string;
+  plugins: string[];
+}
+
+export interface PublicModpackManifest {
+  schemaVersion: 1;
+  collection: ModCollectionRef;
+  mods: ModpackMod[];
+  plugins: Array<{ name: string; sha256: string; masters: string[] }>;
+  loadOrder: string[];
 }
 
 export interface BackendCapabilities {
@@ -59,6 +81,7 @@ export interface DiscordUser {
 
 export interface PublicSettings {
   skyrimPath: string;
+  mo2Path: string;
   activeServerKey: string;
   servers: Server[];
   favoriteServerKeys: string[];
@@ -121,24 +144,6 @@ export interface ClientManifest {
   signature: { algorithm: "Ed25519"; value: string };
 }
 
-export interface ModpackManifest {
-  schemaVersion: 1;
-  serverKey: string;
-  version: string;
-  steam: {
-    appId: 489830;
-    executable: "SkyrimSE.exe";
-    version: string;
-    sha256: string;
-  };
-  archive: { size: number; sha256: string; etag?: string };
-  requiredFreeBytes: number;
-  profile: "Frostfall";
-  executable: "SKSE";
-  stockGame: true;
-  signature: { algorithm: "ed25519"; value: string };
-}
-
 export interface NexusStatus {
   authenticated: boolean;
   premium: boolean;
@@ -152,6 +157,8 @@ export interface ModpackStatus {
   availableVersion?: string;
   root: string;
   nexus?: NexusStatus;
+  mo2?: { found: boolean; path?: string; managed: boolean };
+  vortex?: { found: boolean; path?: string };
 }
 
 export interface PreflightCheck {
@@ -189,6 +196,7 @@ export interface ElectronApi {
   modpackStatus(): Promise<ModpackStatus>;
   nexusLogin(): Promise<NexusStatus>;
   selectModpackLocation(): Promise<PublicSettings>;
+  selectMo2Installation(): Promise<ModpackStatus>;
   fetchDashboard(): Promise<any>;
   discordLogin(): Promise<any>;
   discordLogout(): Promise<void>;

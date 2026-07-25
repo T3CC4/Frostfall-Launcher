@@ -24,7 +24,11 @@ The signed modpack manifest contains only a Nexus Collection slug, pinned
 revision, plugin list, load order and hashes. It never contains archives. The
 bundled `vortex-extension/` delegates Nexus login, Collection dependencies,
 downloads and FOMOD installation to Vortex. Frostfall then creates one portable
-MO2 root per server using hardlinks on the same volume and copies as fallback.
+MO2 root per Directory/server identity. Vortex runs in a separate user-data
+area against a sandbox game path, so it cannot deploy into the real Skyrim
+`Data`. Verified files are copied into an immutable hash cache, then hardlinked
+into the server MO2 instance on the same volume (copy fallback). Existing
+personal MO2/Vortex profiles and configuration are never imported.
 
 A server may additionally publish a mandatory Client Pack binding in its
 Directory-signed descriptor. Frostfall downloads the manifest and ZIP directly

@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import http from "node:http";
 import https from "node:https";
 import { serverSchema } from "./schemas.js";
-import type { Server } from "./types.js";
+import { modpackManifestSchema } from "./schemas.js";
+import type { PublicModpackManifest, Server } from "./types.js";
 
 export interface DirectoryOptions {
   url: string;
@@ -106,6 +107,17 @@ export class DirectoryApi {
       {},
       sessionToken,
     );
+  }
+
+  async modpack(
+    serverId: string,
+    signal?: AbortSignal,
+  ): Promise<PublicModpackManifest> {
+    const value = await this.signed(
+      `/api/servers/${encodeURIComponent(serverId)}/modpack`,
+      signal,
+    );
+    return modpackManifestSchema.parse(value);
   }
 
   private map(item: any): Server {

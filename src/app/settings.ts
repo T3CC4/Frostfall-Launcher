@@ -4,6 +4,7 @@ import type { DiscordUser, PublicSettings, Server } from "./types.js";
 
 type StoreShape = {
   skyrimPath: string;
+  mo2Path: string;
   activeServerKey: string;
   activeServerIndex?: number;
   cachedServers: Server[];
@@ -38,6 +39,7 @@ export class SettingsService {
     this.store = new Store<StoreShape>({
       defaults: {
         skyrimPath: "",
+        mo2Path: "",
         activeServerKey: "",
         cachedServers: [],
         favoriteServerKeys: [],
@@ -230,6 +232,7 @@ export class SettingsService {
   publicSettings(): PublicSettings {
     return {
       skyrimPath: this.store.get("skyrimPath"),
+      mo2Path: this.store.get("mo2Path"),
       activeServerKey: this.activeServer()?.key || "",
       servers: this.store.get("cachedServers"),
       favoriteServerKeys: this.store.get("favoriteServerKeys"),

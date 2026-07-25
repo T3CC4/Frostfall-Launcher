@@ -45,6 +45,9 @@ const translations = {
     installed: "installed",
     missing: "missing",
     wrongVersion: "wrong version",
+    damaged: "damaged",
+    pending: "pending confirmation",
+    downloading: "downloading",
     disabled: "disabled",
     optional: "optional",
     conflict: "conflict",
@@ -112,6 +115,9 @@ const translations = {
     installed: "installiert",
     missing: "fehlt",
     wrongVersion: "falsche Version",
+    damaged: "beschädigt",
+    pending: "Bestätigung ausstehend",
+    downloading: "wird heruntergeladen",
     disabled: "deaktiviert",
     optional: "optional",
     conflict: "Konflikt",
@@ -493,7 +499,7 @@ function renderMods(items: any[]) {
     const row = document.createElement("div");
     row.className = `modlist-item${mod.enabled === false ? " modlist-item--disabled" : ""}`;
     const dot = document.createElement("span");
-    dot.className = `mod-dot ${["missing", "wrongVersion", "conflict"].includes(mod.status) ? "mod-dot--disabled" : "mod-dot--enabled"}`;
+    dot.className = `mod-dot ${["missing", "wrongVersion", "damaged", "conflict"].includes(mod.status) ? "mod-dot--disabled" : "mod-dot--enabled"}`;
     const name = document.createElement("span");
     name.className = "mod-name";
     name.textContent = mod.name || "Unknown mod";
@@ -770,6 +776,10 @@ $("btn-browse").addEventListener("click", async () => {
 });
 $("btn-select-modpack-location").addEventListener("click", async () => {
   populateSettings(await window.electronAPI.selectModpackLocation());
+  await refreshModpackStatus();
+});
+$("btn-select-mo2").addEventListener("click", async () => {
+  await window.electronAPI.selectMo2Installation();
   await refreshModpackStatus();
 });
 $("btn-nexus-login").addEventListener("click", async () => {
